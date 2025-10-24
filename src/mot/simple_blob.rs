@@ -26,6 +26,7 @@ pub struct SimpleBlob {
     diagonal: f32,
     tracker: Kalman2D,
     entity_id: usize,
+    pub features: Option<Vec<f32>>,
     // @todo: keep track of object timestamps? default/new_with_time(...)?
 }
 
@@ -61,6 +62,7 @@ impl SimpleBlob {
             diagonal: _diagonal,
             tracker: kf,
             entity_id: 0,
+            features: None,
         };
         newb.track.push(newb.current_center.clone());
         newb
@@ -101,6 +103,7 @@ impl SimpleBlob {
             diagonal: _diagonal,
             tracker: kf,
             entity_id: 0,
+            features: None,
         };
         newb.track.push(newb.current_center.clone());
         newb
@@ -112,6 +115,11 @@ impl SimpleBlob {
     /// Add some entity_id be able to reassign a tracking uuid to an entity
     pub fn with_entity_id(mut self, eid: usize) -> Self {
         self.entity_id = eid;
+        self
+    }
+
+    pub fn with_features(mut self, features: Vec<f32>) -> Self {
+        self.features = Some(features);
         self
     }
 
@@ -224,6 +232,7 @@ impl SimpleBlob {
         self.current_center = newb.current_center.to_owned();
         self.current_bbox = newb.current_bbox.to_owned();
         self.entity_id = newb.entity_id;
+        self.features = newb.features.clone();
 
         // Smooth center via Kalman filter.
         self.tracker
