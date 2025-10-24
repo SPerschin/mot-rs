@@ -399,7 +399,7 @@ impl ByteTracker {
                 if let Some(track) = self.objects.get_mut(&track_id) {
                     // Correct order: predict first, then update
                     track.predict_next_position(); // Predict next position t+1
-                    track.update(&detections_array[detection_idx])?; // Update with detection at t+1
+                    track.update(&mut detections_array[detection_idx])?; // Update with detection at t+1
                     track.reset_no_match();
                     // Mark as matched
                     matched_tracks.insert(track_id);

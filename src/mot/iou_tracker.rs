@@ -4,11 +4,7 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 use crate::mot::mot_errors;
 use crate::mot::DistanceBlob;
 use crate::mot::SimpleBlob;
-use crate::utils::{
-    iou,
-    Point,
-    euclidean_distance
-};
+use crate::utils::{euclidean_distance, iou, Point};
 use uuid::Uuid;
 
 /// Naive implementation of Multi-object tracker (MOT) with IoU matching
@@ -92,13 +88,13 @@ impl IoUTracker {
                 // Add distance-based fallback
                 let predicted_center = Point::new(
                     predicted_bbox.x + predicted_bbox.width / 2.0,
-                    predicted_bbox.y + predicted_bbox.height / 2.0
+                    predicted_bbox.y + predicted_bbox.height / 2.0,
                 );
                 let distance = euclidean_distance(&predicted_center, &new_object.get_center());
                 // Convert to 0-1 similarity
                 let distance_score = 1.0 / (1.0 + distance * 0.01);
                 // Combine IoU and distance (favor IoU when available, fallback to distance)
-                let combined_score = if iou_value > 0.05 { 
+                let combined_score = if iou_value > 0.05 {
                     iou_value * 0.8 + distance_score * 0.2
                 } else {
                     // Lower weight for pure distance matching
@@ -140,13 +136,13 @@ impl IoUTracker {
                     Some(v) => {
                         // Advance time and update in correct order:
                         v.predict_next_position(); // Advance Kalman to t+1
-                        v.update(&distance_blob.0.blob)?; // Update with measurement from t+1
+                        v.update(distance_blob.0.blob)?; // Update with measurement from t+1
                         v.reset_no_match();
                         // Last but not least:
                         // We need to update ID of new object to match existing one (that is why we have &mut in function definition)
                         distance_blob.0.blob.set_id(min_id);
                         reserved_objects.insert(min_id);
-                    },
+                    }
                     None => {
                         return Err(mot_errors::TrackerError::from(mot_errors::NoObjectInTracker{txt: format!("immposible self.objects.get_mut(&min_id). Object ID {:?}. IoU value: {:?}", min_id, max_iou)}));
                     }

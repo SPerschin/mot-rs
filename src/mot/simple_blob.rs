@@ -227,12 +227,12 @@ impl SimpleBlob {
         self.predicted_next_position.y = self.track[track_len - 1].y + delta_y;
     }
     // Update blobs position and execute Kalman filter's second step (evalute state vector based on Kalman gain)
-    pub fn update(&mut self, newb: &SimpleBlob) -> Result<(), mot_errors::TrackerError> {
+    pub fn update(&mut self, newb: &mut SimpleBlob) -> Result<(), mot_errors::TrackerError> {
         // Update center
         self.current_center = newb.current_center.to_owned();
         self.current_bbox = newb.current_bbox.to_owned();
         self.entity_id = newb.entity_id;
-        self.features = newb.features.clone();
+        self.features = newb.features.take();
 
         // Smooth center via Kalman filter.
         self.tracker
