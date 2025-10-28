@@ -8,9 +8,13 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 }
 
 pub fn reid_distance(a: &SimpleBlob, b: &SimpleBlob) -> f32 {
-    if let (Some(features_a), Some(features_b)) = (&a.features, &b.features) {
+    if let (Some(features_a), Some(features_b)) = (a.get_features(), b.get_features()) {
+        // Cosine similarity is in [-1, 1], so distance is in [0, 2]
         1.0 - cosine_similarity(features_a, features_b)
     } else {
-        2.0
+        // If features are missing, return a neutral distance.
+        // A distance of 1.0 results in a normalized score of 0.5,
+        // which neither encourages nor discourages a match.
+        1.0
     }
 }

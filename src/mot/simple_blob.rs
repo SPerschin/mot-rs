@@ -26,7 +26,7 @@ pub struct SimpleBlob {
     diagonal: f32,
     tracker: Kalman2D,
     entity_id: usize,
-    pub features: Option<Vec<f32>>,
+    features: Option<Vec<f32>>,
     // @todo: keep track of object timestamps? default/new_with_time(...)?
 }
 
@@ -121,6 +121,10 @@ impl SimpleBlob {
     pub fn with_features(mut self, features: Vec<f32>) -> Self {
         self.features = Some(features);
         self
+    }
+
+    pub fn get_features(&self) -> Option<&[f32]> {
+        self.features.as_deref()
     }
 
     pub fn get_entity_id(&self) -> usize {

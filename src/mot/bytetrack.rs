@@ -55,9 +55,9 @@ impl ByteTracker {
             high_thresh: 0.5,
             low_thresh: 0.3,
             algorithm: MatchingAlgorithm::Hungarian,
-            iou_weight: 0.5,
-            reid_weight: 0.5,
-            distance_weight: 0.2,
+            iou_weight: 0.25,
+            reid_weight: 0.65,
+            distance_weight: 0.1,
             objects: HashMap::new(),
         }
     }
@@ -143,7 +143,10 @@ impl ByteTracker {
             .map(|id| {
                 (
                     *id,
-                    self.objects.get(id).unwrap().get_predicted_bbox_readonly(),
+                    self.objects
+                        .get(id)
+                        .expect("Track ID should exist in objects map")
+                        .get_predicted_bbox_readonly(),
                 )
             }) // ← ИЗМЕНЕНИЕ: используем предсказанный bbox
             .collect();
@@ -189,7 +192,15 @@ impl ByteTracker {
             .collect();
         let unmatched_track_bboxes: Vec<(Uuid, Rect)> = unmatched_track_ids
             .iter()
-            .map(|id| (*id, self.objects.get(id).unwrap().get_bbox()))
+            .map(|id| {
+                (
+                    *id,
+                    self.objects
+                        .get(id)
+                        .expect("Track ID should exist in objects map")
+                        .get_bbox(),
+                )
+            })
             .collect();
         let low_detection_indices: Vec<usize> = detections
             .iter()
@@ -280,7 +291,10 @@ impl ByteTracker {
                 let det_rect = detections[det_idx].get_bbox();
                 let iou_val = iou(track_bbox, &det_rect);
 
-                let track = self.objects.get(track_id).unwrap();
+                let track = self
+                    .objects
+                    .get(track_id)
+                    .expect("Track ID must be in objects");
                 let reid_dist = crate::mot::reid_metric::reid_distance(track, &detections[det_idx]);
 
                 let track_center = Point::new(
@@ -290,8 +304,9 @@ impl ByteTracker {
                 let distance = euclidean_distance(&track_center, &detections[det_idx].get_center());
                 let distance_score = 1.0 / (1.0 + distance * 0.01);
 
+                let reid_score = 1.0 - reid_dist / 2.0;
                 let combined_score = iou_val * self.iou_weight
-                    + (1.0 - reid_dist) * self.reid_weight
+                    + reid_score * self.reid_weight
                     + distance_score * self.distance_weight;
 
                 row.push(combined_score);
