@@ -104,7 +104,7 @@ impl SimpleTracker {
             {
                 match self.objects.get_mut(&min_id) {
                     Some(v) => {
-                        v.update(&distance_blob.blob)?;
+                        v.update(distance_blob.blob)?;
                         // Last but not least:
                         // We need to update ID of new object to match existing one (that is why we have &mut in function definition)
                         distance_blob.blob.set_id(min_id);

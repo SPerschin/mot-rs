@@ -1,6 +1,6 @@
 use crate::mot::SimpleBlob;
 use crate::mot::TrackerError;
-use crate::utils::{iou, Rect, Point, euclidean_distance};
+use crate::utils::{euclidean_distance, iou, Point, Rect};
 use pathfinding::{matrix::Matrix, prelude::kuhn_munkres_min};
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::error::Error;
@@ -29,6 +29,12 @@ pub struct ByteTracker {
     low_thresh: f32,
     /// Algorithm to use for matching
     algorithm: MatchingAlgorithm,
+    /// Weight for IOU score in matching
+    pub iou_weight: f32,
+    /// Weight for ReID score in matching
+    pub reid_weight: f32,
+    /// Weight for distance score in matching
+    pub distance_weight: f32,
     /// Storage
     pub objects: HashMap<Uuid, SimpleBlob>,
 }
@@ -49,6 +55,9 @@ impl ByteTracker {
             high_thresh: 0.5,
             low_thresh: 0.3,
             algorithm: MatchingAlgorithm::Hungarian,
+            iou_weight: 0.25,
+            reid_weight: 0.65,
+            distance_weight: 0.1,
             objects: HashMap::new(),
         }
     }
@@ -69,6 +78,9 @@ impl ByteTracker {
     ///     high_thresh,
     ///     low_thresh,
     ///     algorithm,
+    ///     0.5,
+    ///     0.5,
+    ///     0.2,
     /// );
     /// ```
     pub fn new(
@@ -77,6 +89,9 @@ impl ByteTracker {
         high_thresh: f32,
         low_thresh: f32,
         algorithm: MatchingAlgorithm,
+        iou_weight: f32,
+        reid_weight: f32,
+        distance_weight: f32,
     ) -> Self {
         ByteTracker {
             max_disappeared,
@@ -84,6 +99,9 @@ impl ByteTracker {
             high_thresh,
             low_thresh,
             algorithm,
+            iou_weight,
+            reid_weight,
+            distance_weight,
             objects: HashMap::new(),
         }
     }
@@ -122,7 +140,15 @@ impl ByteTracker {
             .collect();
         let active_track_bboxes: Vec<(Uuid, Rect)> = active_track_ids
             .iter()
-            .map(|id| (*id, self.objects.get(id).unwrap().get_predicted_bbox_readonly())) // ← ИЗМЕНЕНИЕ: используем предсказанный bbox
+            .map(|id| {
+                (
+                    *id,
+                    self.objects
+                        .get(id)
+                        .expect("Track ID should exist in objects map")
+                        .get_predicted_bbox_readonly(),
+                )
+            }) // ← ИЗМЕНЕНИЕ: используем предсказанный bbox
             .collect();
 
         // Set of matched tracks for stage 1
@@ -166,7 +192,15 @@ impl ByteTracker {
             .collect();
         let unmatched_track_bboxes: Vec<(Uuid, Rect)> = unmatched_track_ids
             .iter()
-            .map(|id| (*id, self.objects.get(id).unwrap().get_bbox()))
+            .map(|id| {
+                (
+                    *id,
+                    self.objects
+                        .get(id)
+                        .expect("Track ID should exist in objects map")
+                        .get_bbox(),
+                )
+            })
             .collect();
         let low_detection_indices: Vec<usize> = detections
             .iter()
@@ -251,27 +285,30 @@ impl ByteTracker {
         // }
         // iou_matrix
         let mut iou_matrix: Vec<Vec<f32>> = Vec::with_capacity(track_bboxes.len());
-        for (_, track_bbox) in track_bboxes {
+        for (track_id, track_bbox) in track_bboxes {
             let mut row = Vec::with_capacity(detection_indices.len());
             for &det_idx in detection_indices {
                 let det_rect = detections[det_idx].get_bbox();
                 let iou_val = iou(track_bbox, &det_rect);
-                // Hybrid IoU + Distance matching (for better recovery when IoU is zero)
-                let combined_score = if iou_val > 0.05 {
-                    // Use IoU when it's reasonably high
-                    iou_val
-                } else {
-                    // Combine IoU and distance (favor IoU when available, fallback to distance)
-                    let track_center = Point::new(
-                        track_bbox.x + track_bbox.width / 2.0,
-                        track_bbox.y + track_bbox.height / 2.0
-                    );
-                    let distance = euclidean_distance(&track_center, &detections[det_idx].get_center());
-                    let distance_score = 1.0 / (1.0 + distance * 0.01);
-                    // Lower weight for pure distance matching
-                    distance_score * 0.3
-                };
-                
+
+                let track = self
+                    .objects
+                    .get(track_id)
+                    .expect("Track ID must be in objects");
+                let reid_dist = crate::mot::reid_metric::reid_distance(track, &detections[det_idx]);
+
+                let track_center = Point::new(
+                    track_bbox.x + track_bbox.width / 2.0,
+                    track_bbox.y + track_bbox.height / 2.0,
+                );
+                let distance = euclidean_distance(&track_center, &detections[det_idx].get_center());
+                let distance_score = 1.0 / (1.0 + distance * 0.01);
+
+                let reid_score = 1.0 - reid_dist / 2.0;
+                let combined_score = iou_val * self.iou_weight
+                    + reid_score * self.reid_weight
+                    + distance_score * self.distance_weight;
+
                 row.push(combined_score);
             }
             iou_matrix.push(row);
@@ -377,7 +414,7 @@ impl ByteTracker {
                 if let Some(track) = self.objects.get_mut(&track_id) {
                     // Correct order: predict first, then update
                     track.predict_next_position(); // Predict next position t+1
-                    track.update(&detections_array[detection_idx])?; // Update with detection at t+1
+                    track.update(&mut detections_array[detection_idx])?; // Update with detection at t+1
                     track.reset_no_match();
                     // Mark as matched
                     matched_tracks.insert(track_id);
@@ -386,7 +423,6 @@ impl ByteTracker {
             }
         }
         Ok(())
-
     }
 }
 
@@ -532,7 +568,16 @@ mod tests {
             vec![0.88, 0.39, 0.92],       // Frame 27
         ];
 
-        let mut mot = ByteTracker::new(5, 0.3, 0.5, 0.3, MatchingAlgorithm::Hungarian);
+        let mut mot = ByteTracker::new(
+            5,
+            0.3,
+            0.5,
+            0.3,
+            MatchingAlgorithm::Hungarian,
+            0.5,
+            0.5,
+            0.2,
+        );
         let dt = 1.0 / 25.00; // emulate 25 fps
 
         for (i, iteration) in bboxes_iterations.iter().enumerate() {

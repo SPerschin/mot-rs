@@ -26,6 +26,7 @@ pub struct SimpleBlob {
     diagonal: f32,
     tracker: Kalman2D,
     entity_id: usize,
+    features: Option<Vec<f32>>,
     // @todo: keep track of object timestamps? default/new_with_time(...)?
 }
 
@@ -61,6 +62,7 @@ impl SimpleBlob {
             diagonal: _diagonal,
             tracker: kf,
             entity_id: 0,
+            features: None,
         };
         newb.track.push(newb.current_center.clone());
         newb
@@ -101,6 +103,7 @@ impl SimpleBlob {
             diagonal: _diagonal,
             tracker: kf,
             entity_id: 0,
+            features: None,
         };
         newb.track.push(newb.current_center.clone());
         newb
@@ -113,6 +116,15 @@ impl SimpleBlob {
     pub fn with_entity_id(mut self, eid: usize) -> Self {
         self.entity_id = eid;
         self
+    }
+
+    pub fn with_features(mut self, features: Vec<f32>) -> Self {
+        self.features = Some(features);
+        self
+    }
+
+    pub fn get_features(&self) -> Option<&[f32]> {
+        self.features.as_deref()
     }
 
     pub fn get_entity_id(&self) -> usize {
@@ -219,11 +231,12 @@ impl SimpleBlob {
         self.predicted_next_position.y = self.track[track_len - 1].y + delta_y;
     }
     // Update blobs position and execute Kalman filter's second step (evalute state vector based on Kalman gain)
-    pub fn update(&mut self, newb: &SimpleBlob) -> Result<(), mot_errors::TrackerError> {
+    pub fn update(&mut self, newb: &mut SimpleBlob) -> Result<(), mot_errors::TrackerError> {
         // Update center
         self.current_center = newb.current_center.to_owned();
         self.current_bbox = newb.current_bbox.to_owned();
         self.entity_id = newb.entity_id;
+        self.features = newb.features.take();
 
         // Smooth center via Kalman filter.
         self.tracker
