@@ -165,15 +165,18 @@ impl ByteTracker {
             .collect();
 
         // Associate high confidence detections with tracks
-        // Calculate IoU matrix between tracks and high confidence detections
         if !active_track_bboxes.is_empty() && !high_detection_indices.is_empty() {
-            // Create IoU matrix: rows = tracks, columns = detections
+            // Create score matrix for matching and IoU matrix for validation
+            let score_matrix =
+                self.create_score_matrix(&active_track_bboxes, &high_detection_indices, detections);
             let iou_matrix =
                 self.create_iou_matrix(&active_track_bboxes, &high_detection_indices, detections);
-            // Perform matching
+
+            // Perform matching using the score matrix
             let matches =
-                self.perform_matching(&iou_matrix, &active_track_bboxes, &high_detection_indices);
-            // Process matches
+                self.perform_matching(&score_matrix, &active_track_bboxes, &high_detection_indices);
+
+            // Process and validate matches using IoU matrix
             self.process_matches(
                 matches,
                 &active_track_bboxes,
@@ -214,12 +217,21 @@ impl ByteTracker {
         // Associate remaining tracks with low confidence detections
         // Second association stage
         if !unmatched_track_bboxes.is_empty() && !low_detection_indices.is_empty() {
-            // Create IoU matrix
+            // Create score matrix for matching and IoU matrix for validation
+            let score_matrix = self.create_score_matrix(
+                &unmatched_track_bboxes,
+                &low_detection_indices,
+                detections,
+            );
             let iou_matrix =
                 self.create_iou_matrix(&unmatched_track_bboxes, &low_detection_indices, detections);
+
             // Perform matching
-            let matches =
-                self.perform_matching(&iou_matrix, &unmatched_track_bboxes, &low_detection_indices);
+            let matches = self.perform_matching(
+                &score_matrix,
+                &unmatched_track_bboxes,
+                &low_detection_indices,
+            );
             // Process matches
             self.process_matches(
                 matches,
@@ -285,6 +297,26 @@ impl ByteTracker {
         // }
         // iou_matrix
         let mut iou_matrix: Vec<Vec<f32>> = Vec::with_capacity(track_bboxes.len());
+        for (_, track_bbox) in track_bboxes {
+            let mut row = Vec::with_capacity(detection_indices.len());
+            for &det_idx in detection_indices {
+                let det_rect = detections[det_idx].get_bbox();
+                let iou_val = iou(track_bbox, &det_rect);
+                row.push(iou_val);
+            }
+            iou_matrix.push(row);
+        }
+        iou_matrix
+    }
+
+    /// Helper function to create a combined score matrix for matching
+    fn create_score_matrix(
+        &self,
+        track_bboxes: &[(Uuid, Rect)],
+        detection_indices: &[usize],
+        detections: &[SimpleBlob],
+    ) -> Vec<Vec<f32>> {
+        let mut score_matrix: Vec<Vec<f32>> = Vec::with_capacity(track_bboxes.len());
         for (track_id, track_bbox) in track_bboxes {
             let mut row = Vec::with_capacity(detection_indices.len());
             for &det_idx in detection_indices {
@@ -311,14 +343,14 @@ impl ByteTracker {
 
                 row.push(combined_score);
             }
-            iou_matrix.push(row);
+            score_matrix.push(row);
         }
-        iou_matrix
+        score_matrix
     }
     /// Helper function to perform matching using Hungarian or Greedy algorithm
     fn perform_matching(
         &self,
-        iou_matrix: &[Vec<f32>],
+        score_matrix: &[Vec<f32>],
         track_bboxes: &[(Uuid, Rect)],
         detection_indices: &[usize],
     ) -> Vec<(usize, usize)> {
@@ -334,8 +366,8 @@ impl ByteTracker {
                         (0..padded_cols)
                             .map(|j| {
                                 if j < num_detections {
-                                    // Real IoU value
-                                    ((1.0 - iou_matrix[i][j]) * SCALE_FACTOR) as i32
+                                    // Use the combined score for matching
+                                    ((1.0 - score_matrix[i][j]) * SCALE_FACTOR) as i32
                                 } else {
                                     // Dummy detection - very high cost (low IoU)
                                     (SCALE_FACTOR) as i32 // Cost of 1.0 (IoU of 0.0)
@@ -358,30 +390,30 @@ impl ByteTracker {
                     .collect()
             }
             MatchingAlgorithm::Greedy => {
-                self.perform_greedy_matching(iou_matrix, track_bboxes, detection_indices)
+                self.perform_greedy_matching(score_matrix, track_bboxes, detection_indices)
             }
         }
     }
     /// Helper function for greedy matching
     fn perform_greedy_matching(
         &self,
-        iou_matrix: &[Vec<f32>],
+        score_matrix: &[Vec<f32>],
         track_bboxes: &[(Uuid, Rect)],
         detection_indices: &[usize],
     ) -> Vec<(usize, usize)> {
         let mut matches = Vec::new();
         let mut matched_dets = HashSet::new();
         for i in 0..track_bboxes.len() {
-            let mut best_iou = self.min_iou;
+            let mut best_score = self.min_iou;
             let mut best_det_idx = None;
             for j in 0..detection_indices.len() {
                 // Skip already matched detections
                 if matched_dets.contains(&j) {
                     continue;
                 }
-                let iou_val = iou_matrix[i][j];
-                if iou_val > best_iou {
-                    best_iou = iou_val;
+                let score = score_matrix[i][j];
+                if score > best_score {
+                    best_score = score;
                     best_det_idx = Some(j);
                 }
             }
@@ -963,6 +995,9 @@ mod tests {
             0.7, // high_thresh
             0.2, // low_thresh
             MatchingAlgorithm::Hungarian,
+            0.25, // iou_weight
+            0.65, // reid_weight
+            0.1,  // distance_weight
         );
         let dt = 1.0 / 25.00; // emulate 25 fps
 
