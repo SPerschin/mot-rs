@@ -67,6 +67,7 @@ impl ByteTracker {
     ///
     /// ```
     /// use mot_rs::mot::ByteTracker;
+    /// use mot_rs::mot::MatchingAlgorithm;
     /// let max_disappeared = 5;
     /// let min_iou = 0.3;
     /// let high_thresh = 0.5;
@@ -353,7 +354,7 @@ impl ByteTracker {
                 assignments
                     .iter()
                     .enumerate()
-                    .filter(|(_, &det_idx)| det_idx < num_detections)
+                    .filter(|&(_, det_idx)| *det_idx < num_detections)
                     .map(|(track_idx, &det_idx)| (track_idx, det_idx))
                     .collect()
             }
@@ -429,7 +430,6 @@ impl ByteTracker {
 mod tests {
     use crate::mot::{ByteTracker, MatchingAlgorithm, SimpleBlob};
     use crate::utils::Rect;
-
     #[test]
     fn test_match_objects_spread() {
         let bboxes_iterations: Vec<Vec<Rect>> = vec![
