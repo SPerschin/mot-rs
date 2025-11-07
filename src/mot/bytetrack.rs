@@ -303,7 +303,17 @@ impl ByteTracker {
             for &det_idx in detection_indices {
                 let det_rect = detections[det_idx].get_bbox();
                 let iou_val = iou(track_bbox, &det_rect);
-                row.push(iou_val);
+
+                let track_center = Point::new(
+                    track_bbox.x + track_bbox.width / 2.0,
+                    track_bbox.y + track_bbox.height / 2.0,
+                );
+                let distance = euclidean_distance(&track_center, &detections[det_idx].get_center());
+                let distance_score = 1.0 / (1.0 + distance * 0.01);
+
+                // Combine IoU and distance score. Here we can adjust the weighting.
+                let combined_score = iou_val * 0.7 + distance_score * 0.3;
+                row.push(combined_score);
             }
             iou_matrix.push(row);
         }
