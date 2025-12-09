@@ -35,6 +35,8 @@ pub struct ByteTracker {
     pub reid_weight: f32,
     /// Weight for distance score in matching
     pub distance_weight: f32,
+    /// Maximum distance for a match to be considered
+    pub max_distance: f32,
     /// Storage
     pub objects: HashMap<Uuid, SimpleBlob>,
 }
@@ -58,6 +60,7 @@ impl ByteTracker {
             iou_weight: 0.25,
             reid_weight: 0.65,
             distance_weight: 0.1,
+            max_distance: 200.0,
             objects: HashMap::new(),
         }
     }
@@ -82,6 +85,7 @@ impl ByteTracker {
     ///     0.5,
     ///     0.5,
     ///     0.2,
+    ///     200.0,
     /// );
     /// ```
     pub fn new(
@@ -93,6 +97,7 @@ impl ByteTracker {
         iou_weight: f32,
         reid_weight: f32,
         distance_weight: f32,
+        max_distance: f32,
     ) -> Self {
         ByteTracker {
             max_disappeared,
@@ -103,6 +108,7 @@ impl ByteTracker {
             iou_weight,
             reid_weight,
             distance_weight,
+            max_distance,
             objects: HashMap::new(),
         }
     }
@@ -309,6 +315,10 @@ impl ByteTracker {
                     track_bbox.y + track_bbox.height / 2.0,
                 );
                 let distance = euclidean_distance(&track_center, &detections[det_idx].get_center());
+                if distance > self.max_distance {
+                    row.push(0.0);
+                    continue;
+                }
                 let distance_score = 1.0 / (1.0 + distance * 0.01);
 
                 // Combine IoU and distance score. Here we can adjust the weighting.
@@ -345,6 +355,10 @@ impl ByteTracker {
                     track_bbox.y + track_bbox.height / 2.0,
                 );
                 let distance = euclidean_distance(&track_center, &detections[det_idx].get_center());
+                if distance > self.max_distance {
+                    row.push(0.0);
+                    continue;
+                }
                 let distance_score = 1.0 / (1.0 + distance * 0.01);
 
                 let reid_score = 1.0 - reid_dist / 2.0;
@@ -619,6 +633,7 @@ mod tests {
             0.5,
             0.5,
             0.2,
+            200.0,
         );
         let dt = 1.0 / 25.00; // emulate 25 fps
 
@@ -1008,6 +1023,7 @@ mod tests {
             0.25, // iou_weight
             0.65, // reid_weight
             0.1,  // distance_weight
+            200.0,
         );
         let dt = 1.0 / 25.00; // emulate 25 fps
 
