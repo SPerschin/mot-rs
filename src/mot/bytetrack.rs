@@ -1,9 +1,8 @@
 use crate::mot::SimpleBlob;
 use crate::mot::TrackerError;
-use crate::utils::{euclidean_distance, iou, Point, Rect};
+use crate::utils::{Point, Rect, euclidean_distance, iou};
 use pathfinding::{matrix::Matrix, prelude::kuhn_munkres_min};
-use std::collections::{BinaryHeap, HashMap, HashSet};
-use std::error::Error;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 const SCALE_FACTOR: f32 = 1_000_000.0;
@@ -35,7 +34,7 @@ pub struct ByteTracker {
     pub reid_weight: f32,
     /// Weight for distance score in matching
     pub distance_weight: f32,
-    /// Maximum distance for a match to be considered
+    /// Maximum distance relative to box height for a match to be considered
     pub max_distance: f32,
     /// Storage
     pub objects: HashMap<Uuid, SimpleBlob>,
@@ -60,7 +59,7 @@ impl ByteTracker {
             iou_weight: 0.25,
             reid_weight: 0.65,
             distance_weight: 0.1,
-            max_distance: 200.0,
+            max_distance: 2.0,
             objects: HashMap::new(),
         }
     }
@@ -85,7 +84,7 @@ impl ByteTracker {
     ///     0.5,
     ///     0.5,
     ///     0.2,
-    ///     200.0,
+    ///     2.0,
     /// );
     /// ```
     pub fn new(
@@ -114,7 +113,7 @@ impl ByteTracker {
     }
 
     /// Matches objects in the current frame with existing tracks.
-    ///     
+    ///
     /// # Arguments
     /// * `detections` - A slice of rectangles representing detected objects.
     /// * `confidences` - A slice of confidence scores for the detected objects.
@@ -125,12 +124,11 @@ impl ByteTracker {
         confidences: &[f32],
     ) -> Result<(), TrackerError> {
         if detections.len() != confidences.len() {
-            return Err(TrackerError::BadSize(
-                format!(
-                    "Detections and confidences arrays must have the same length. Conf array size: {}. Detections array size: {}",
-                     confidences.len(), detections.len()
-                )
-            ));
+            return Err(TrackerError::BadSize(format!(
+                "Detections and confidences arrays must have the same length. Conf array size: {}. Detections array size: {}",
+                confidences.len(),
+                detections.len()
+            )));
         }
 
         // Predict next positions for all existing tracks via Kalman filter
@@ -314,12 +312,13 @@ impl ByteTracker {
                     track_bbox.x + track_bbox.width / 2.0,
                     track_bbox.y + track_bbox.height / 2.0,
                 );
-                let distance = euclidean_distance(&track_center, &detections[det_idx].get_center());
+                let distance = euclidean_distance(&track_center, &detections[det_idx].get_center())
+                    / track_bbox.height.max(1.0);
                 if distance > self.max_distance {
                     row.push(0.0);
                     continue;
                 }
-                let distance_score = 1.0 / (1.0 + distance * 0.01);
+                let distance_score = 1.0 / (1.0 + distance);
 
                 // Combine IoU and distance score. Here we can adjust the weighting.
                 let combined_score = iou_val * 0.7 + distance_score * 0.3;
@@ -354,12 +353,13 @@ impl ByteTracker {
                     track_bbox.x + track_bbox.width / 2.0,
                     track_bbox.y + track_bbox.height / 2.0,
                 );
-                let distance = euclidean_distance(&track_center, &detections[det_idx].get_center());
+                let distance = euclidean_distance(&track_center, &detections[det_idx].get_center())
+                    / track_bbox.height.max(1.0);
                 if distance > self.max_distance {
                     row.push(0.0);
                     continue;
                 }
-                let distance_score = 1.0 / (1.0 + distance * 0.01);
+                let distance_score = 1.0 / (1.0 + distance);
 
                 let reid_score = 1.0 - reid_dist / 2.0;
                 let combined_score = iou_val * self.iou_weight
@@ -633,7 +633,7 @@ mod tests {
             0.5,
             0.5,
             0.2,
-            200.0,
+            2.0,
         );
         let dt = 1.0 / 25.00; // emulate 25 fps
 
@@ -1023,7 +1023,7 @@ mod tests {
             0.25, // iou_weight
             0.65, // reid_weight
             0.1,  // distance_weight
-            200.0,
+            2.0,
         );
         let dt = 1.0 / 25.00; // emulate 25 fps
 
