@@ -249,24 +249,23 @@ impl ByteTracker {
             )?;
         }
 
-        // 3. Add new tracks for unmatched high confidence detections
-        let mut new_tracks: HashSet<Uuid> = HashSet::new();
+        // 3. Increment no_match_times for unmatched tracks
+        for (_, track) in self.objects.iter_mut() {
+            if !matched_tracks.contains(&track.get_id()) {
+                // Progress to t+1 even if no match
+                track.predict_next_position();
+                track.inc_no_match();
+            }
+        }
+
+        // 4. Add new tracks for unmatched high confidence detections. A new track starts at its
+        // detection in this frame, so it is added only after the unmatched tracks were handled:
+        // it is neither counted as missed nor moved forward.
         for &idx in &high_detection_indices {
             if !matched_detections.contains(&idx) {
                 let mut new_blob = detections[idx].clone();
                 new_blob.activate();
-                new_tracks.insert(new_blob.get_id());
                 self.objects.insert(new_blob.get_id(), new_blob);
-            }
-        }
-
-        // 4. Increment no_match_times for unmatched tracks. A new track starts at its detection
-        // in this frame, so it is neither counted as missed nor moved forward.
-        for (_, track) in self.objects.iter_mut() {
-            if !matched_tracks.contains(&track.get_id()) && !new_tracks.contains(&track.get_id()) {
-                // Progress to t+1 even if no match
-                track.predict_next_position();
-                track.inc_no_match();
             }
         }
 
