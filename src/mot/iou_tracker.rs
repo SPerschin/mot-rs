@@ -201,8 +201,8 @@ mod tests {
 
         tracker.match_objects(&mut blobs).unwrap();
 
-        // The tracker has no objects yet, so the detection starts a new object. It matches its
-        // own detection in this frame, so it was not missed.
+        // The tracker has no objects yet, so the detection starts a new object. The object starts
+        // at its detection in this frame, so it was not missed.
         let no_match_times: Vec<usize> = tracker
             .objects
             .values()
