@@ -249,21 +249,23 @@ impl ByteTracker {
             )?;
         }
 
-        // 3. Add new tracks for unmatched high confidence detections
-        for &idx in &high_detection_indices {
-            if !matched_detections.contains(&idx) {
-                let mut new_blob = detections[idx].clone();
-                new_blob.activate();
-                self.objects.insert(new_blob.get_id(), new_blob);
-            }
-        }
-
-        // 4. Increment no_match_times for unmatched tracks
+        // 3. Increment no_match_times for unmatched tracks
         for (_, track) in self.objects.iter_mut() {
             if !matched_tracks.contains(&track.get_id()) {
                 // Progress to t+1 even if no match
                 track.predict_next_position();
                 track.inc_no_match();
+            }
+        }
+
+        // 4. Add new tracks for unmatched high confidence detections. A new track starts at its
+        // detection in this frame, so it is added only after the unmatched tracks were handled:
+        // it is neither counted as missed nor moved forward.
+        for &idx in &high_detection_indices {
+            if !matched_detections.contains(&idx) {
+                let mut new_blob = detections[idx].clone();
+                new_blob.activate();
+                self.objects.insert(new_blob.get_id(), new_blob);
             }
         }
 
@@ -486,6 +488,28 @@ impl ByteTracker {
 mod tests {
     use crate::mot::{ByteTracker, MatchingAlgorithm, SimpleBlob};
     use crate::utils::Rect;
+
+    #[test]
+    fn match_objects_does_not_count_new_track_as_missed_in_the_frame_that_starts_it() {
+        let mut tracker = ByteTracker::default();
+        // The confidence 0.9 reaches the default `high_thresh` of 0.5, so the detection starts
+        // a track in this frame.
+        let mut blobs = vec![SimpleBlob::new_with_dt(
+            Rect::new(10.0, 20.0, 30.0, 40.0),
+            0.04,
+        )];
+
+        tracker.match_objects(&mut blobs, &[0.9]).unwrap();
+
+        // The track starts at its detection in this frame, so it was not missed.
+        let no_match_times: Vec<usize> = tracker
+            .objects
+            .values()
+            .map(|track| track.get_no_match_times())
+            .collect();
+        assert_eq!(no_match_times, [0]);
+    }
+
     #[test]
     fn test_match_objects_spread() {
         let bboxes_iterations: Vec<Vec<Rect>> = vec![
