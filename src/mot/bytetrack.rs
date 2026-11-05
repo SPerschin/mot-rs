@@ -34,7 +34,9 @@ pub struct ByteTracker {
     pub reid_weight: f32,
     /// Weight for distance score in matching
     pub distance_weight: f32,
-    /// Maximum distance relative to box height for a match to be considered
+    /// Maximum distance relative to the larger side of the track's box for a match to be
+    /// considered. The larger side keeps the limit independent of the box's orientation, for
+    /// example for objects that appear rotated in the image of a fisheye camera.
     pub max_distance: f32,
     /// Storage
     pub objects: HashMap<Uuid, SimpleBlob>,
@@ -315,7 +317,7 @@ impl ByteTracker {
                     track_bbox.y + track_bbox.height / 2.0,
                 );
                 let distance = euclidean_distance(&track_center, &detections[det_idx].get_center())
-                    / track_bbox.height.max(1.0);
+                    / track_bbox.width.max(track_bbox.height).max(1.0);
                 if distance > self.max_distance {
                     row.push(0.0);
                     continue;
@@ -356,7 +358,7 @@ impl ByteTracker {
                     track_bbox.y + track_bbox.height / 2.0,
                 );
                 let distance = euclidean_distance(&track_center, &detections[det_idx].get_center())
-                    / track_bbox.height.max(1.0);
+                    / track_bbox.width.max(track_bbox.height).max(1.0);
                 if distance > self.max_distance {
                     row.push(0.0);
                     continue;
@@ -488,6 +490,28 @@ impl ByteTracker {
 mod tests {
     use crate::mot::{ByteTracker, MatchingAlgorithm, SimpleBlob};
     use crate::utils::Rect;
+
+    #[test]
+    fn distance_limit_does_not_depend_on_the_orientation_of_the_box() {
+        let tracker = ByteTracker::default();
+        let score = |track_bbox: Rect, detection_bbox: Rect| {
+            let detections = [SimpleBlob::new(detection_bbox)];
+            tracker.create_iou_matrix(&[(uuid::Uuid::nil(), track_bbox)], &[0], &detections)[0][0]
+        };
+        // A box twice as wide as high, and a detection 50 to the side: 1.25 times the larger
+        // side away, within the default `max_distance` of 2, but 2.5 times the height.
+        let lying = score(
+            Rect::new(0.0, 0.0, 40.0, 20.0),
+            Rect::new(50.0, 0.0, 40.0, 20.0),
+        );
+        // The same, turned by 90°.
+        let upright = score(
+            Rect::new(0.0, 0.0, 20.0, 40.0),
+            Rect::new(0.0, 50.0, 20.0, 40.0),
+        );
+        assert!(lying > 0.0, "The detection is within the distance limit");
+        assert!((lying - upright).abs() < 1e-6, "{lying} != {upright}");
+    }
 
     #[test]
     fn match_objects_does_not_count_new_track_as_missed_in_the_frame_that_starts_it() {
