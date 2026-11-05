@@ -242,7 +242,7 @@ impl SimpleBlob {
         self.tracker
             .update(newb.current_center.x as f32, newb.current_center.y as f32)?;
 
-        // Update center and re-evaluate bounding box
+        // Update center and move the bounding box along with it, keeping its size
         let (state_x, state_y) = self.tracker.get_state();
         let old_x = self.current_center.x;
         let old_y = self.current_center.y;
@@ -251,10 +251,10 @@ impl SimpleBlob {
         let diff_x = self.current_center.x - old_x;
         let diff_y = self.current_center.y - old_y;
         self.current_bbox = Rect::new(
-            self.current_bbox.x - diff_x,
-            self.current_bbox.y - diff_y,
-            self.current_bbox.width - diff_x,
-            self.current_bbox.height - diff_y,
+            self.current_bbox.x + diff_x,
+            self.current_bbox.y + diff_y,
+            self.current_bbox.width,
+            self.current_bbox.height,
         );
         // Update remaining properties
         self.diagonal = newb.diagonal;
@@ -274,5 +274,38 @@ impl SimpleBlob {
     }
     pub fn distance_to_predicted(&self, b: &SimpleBlob) -> f32 {
         euclidean_distance(&self.predicted_next_position, &b.predicted_next_position)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SimpleBlob;
+    use crate::utils::Rect;
+
+    #[test]
+    fn update_moves_the_box_with_the_smoothed_center_and_keeps_its_size() {
+        let dt = 0.2;
+        let mut track = SimpleBlob::new_with_dt(Rect::new(100.0, 100.0, 20.0, 40.0), dt);
+        track.predict_next_position();
+        // A detection away from the prediction, so that the Kalman filter corrects its center.
+        let mut detection = SimpleBlob::new_with_dt(Rect::new(130.0, 90.0, 24.0, 50.0), dt);
+        track.update(&mut detection).unwrap();
+
+        let center = track.get_center();
+        let bbox = track.get_bbox();
+        let (detection_x, detection_y) = (142.0, 115.0);
+        assert!(
+            (center.x - detection_x).hypot(center.y - detection_y) > 0.1,
+            "The test needs a noticeable correction, got center {center:?}"
+        );
+        assert_eq!((bbox.width, bbox.height), (24.0, 50.0));
+        assert!(
+            (bbox.x + bbox.width / 2.0 - center.x).abs() < 1e-3,
+            "{bbox:?} {center:?}"
+        );
+        assert!(
+            (bbox.y + bbox.height / 2.0 - center.y).abs() < 1e-3,
+            "{bbox:?} {center:?}"
+        );
     }
 }
